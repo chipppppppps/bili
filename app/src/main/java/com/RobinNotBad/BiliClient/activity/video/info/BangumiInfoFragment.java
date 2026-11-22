@@ -26,6 +26,7 @@ import com.RobinNotBad.BiliClient.activity.video.JumpToPlayerActivity;
 import com.RobinNotBad.BiliClient.adapter.video.MediaEpisodeAdapter;
 import com.RobinNotBad.BiliClient.api.BangumiApi;
 import com.RobinNotBad.BiliClient.api.PlayerApi;
+import com.RobinNotBad.BiliClient.listener.OnItemLongClickListener;
 import com.RobinNotBad.BiliClient.model.Bangumi;
 import com.RobinNotBad.BiliClient.model.PlayerData;
 import com.RobinNotBad.BiliClient.service.DownloadService;
@@ -50,6 +51,8 @@ public class BangumiInfoFragment extends Fragment {
     private Button section_choose;
     private TextView episode_choose;
     private Bangumi bangumi;
+    private MediaEpisodeAdapter episodeAdapter;
+    private boolean multiSelectMode = false;
 
     public static BangumiInfoFragment newInstance(long mediaId) {
         Bundle args = new Bundle();
@@ -224,11 +227,17 @@ public class BangumiInfoFragment extends Fragment {
         }
         //section selector setting.
         MediaEpisodeAdapter adapter = new MediaEpisodeAdapter();
+        episodeAdapter = adapter;
 
         adapter.setOnItemClickListener(index -> {
-            selectedEpisode = index;
-            refreshReplies();
+            if (adapter.isMultiSelectMode()) {
+                updateMultiSelectButtons();
+            } else {
+                selectedEpisode = index;
+                refreshReplies();
+            }
         });
+        adapter.setOnItemLongClickListener(index -> enterMultiSelect(index));
 
         TextView indexShow = rootView.findViewById(R.id.indexShow);
         indexShow.setText(bangumi.info.indexShow);
@@ -246,8 +255,16 @@ public class BangumiInfoFragment extends Fragment {
         }
 
         section_choose.setText(bangumi.sectionList.get(0).title + " 点击切换");
-        section_choose.setOnClickListener(v -> getSectionChooseDialog().show());
-        episode_choose.setOnClickListener(v -> getEposideChooseDialog().show());
+        section_choose.setOnClickListener(v -> {
+            if (multiSelectMode)
+                exitMultiSelect();
+            getSectionChooseDialog().show();
+        });
+        episode_choose.setOnClickListener(v -> {
+            if (multiSelectMode)
+                exitMultiSelect();
+            getEposideChooseDialog().show();
+        });
 
         adapter.setData(bangumi.sectionList.get(0).episodeList);
         episodeRecyclerView.setLayoutManager(new CustomLinearManager(requireContext(), LinearLayoutManager.HORIZONTAL, false));
@@ -255,6 +272,10 @@ public class BangumiInfoFragment extends Fragment {
 
         //play button setting
         playButton.setOnClickListener(v -> {
+            if (multiSelectMode) {
+                exitMultiSelect();
+                return;
+            }
             Bangumi.Episode episode = bangumi.sectionList.get(selectedSection).episodeList.get(selectedEpisode);
             Glide.get(requireContext()).clearMemory();
             Intent intent = new Intent(v.getContext(), JumpToPlayerActivity.class);
@@ -262,16 +283,24 @@ public class BangumiInfoFragment extends Fragment {
             startActivity(intent);
         });
         playButton.setOnLongClickListener(v -> {
-            Intent intent = new Intent(v.getContext(), SettingPlayerChooseActivity.class);
-            startActivity(intent);
+            if (!multiSelectMode) {
+                Intent intent = new Intent(v.getContext(), SettingPlayerChooseActivity.class);
+                startActivity(intent);
+            }
             return true;
         });
 
-        //缓存按钮：点击缓存本集，长按缓存本季全部
+        //缓存按钮：点击缓存本集，长按缓存本季全部；多选模式下点击缓存已勾选集
         Button cacheButton = rootView.findViewById(R.id.btn_cache);
-        cacheButton.setOnClickListener(v -> cacheClick(false));
+        cacheButton.setOnClickListener(v -> {
+            if (multiSelectMode)
+                cacheSelectedEpisodes();
+            else
+                cacheClick(false);
+        });
         cacheButton.setOnLongClickListener(v -> {
-            cacheClick(true);
+            if (!multiSelectMode)
+                cacheClick(true);
             return true;
         });
         onFinishLoad();
@@ -299,7 +328,11 @@ public class BangumiInfoFragment extends Fragment {
                 adapter.setData(bangumi.sectionList.get(which).episodeList);
                 episodeRecyclerView.scrollToPosition(0);
             }
-            episode_choose.setOnClickListener(v -> getEposideChooseDialog().show());
+            episode_choose.setOnClickListener(v -> {
+                if (multiSelectMode)
+                    exitMultiSelect();
+                getEposideChooseDialog().show();
+            });
             dialog.dismiss();
         });
         dialog = builder.create();
@@ -361,6 +394,75 @@ public class BangumiInfoFragment extends Fragment {
     }
 
     /**
+     * 进入批量勾选模式（长按分集触发）
+     */
+    private void enterMultiSelect(int index) {
+        multiSelectMode = true;
+        if (episodeAdapter != null) {
+            episodeAdapter.enterMultiSelect(index);
+        }
+        updateMultiSelectButtons();
+    }
+
+    /**
+     * 退出批量勾选模式
+     */
+    private void exitMultiSelect() {
+        multiSelectMode = false;
+        if (episodeAdapter != null) {
+            episodeAdapter.exitMultiSelect();
+        }
+        updateMultiSelectButtons();
+    }
+
+    /**
+     * 根据多选状态更新播放/缓存按钮文字
+     */
+    private void updateMultiSelectButtons() {
+        Button playButton = rootView.findViewById(R.id.btn_play);
+        Button cacheButton = rootView.findViewById(R.id.btn_cache);
+        if (multiSelectMode && episodeAdapter != null) {
+            int count = episodeAdapter.getSelectedCount();
+            playButton.setText("取消");
+            cacheButton.setText(count > 0 ? "缓存已选 " + count + " 集" : "请先勾选分集");
+        } else {
+            playButton.setText("播放");
+            cacheButton.setText("缓存本集");
+        }
+    }
+
+    /**
+     * 缓存当前勾选的分集
+     */
+    private void cacheSelectedEpisodes() {
+        if (bangumi == null || bangumi.sectionList.isEmpty())
+            return;
+
+        if (episodeAdapter == null || episodeAdapter.getSelectedCount() == 0) {
+            MsgUtil.showMsg("请先勾选要缓存的分集");
+            return;
+        }
+
+        if (!FileUtil.checkStoragePermission()) {
+            FileUtil.requestStoragePermission(requireActivity());
+            return;
+        }
+
+        Bangumi.Section section = bangumi.sectionList.get(selectedSection);
+        List<Integer> indices = episodeAdapter.getSelectedIndices();
+        ArrayList<Bangumi.Episode> episodes = new ArrayList<>();
+        for (int idx : indices) {
+            if (idx >= 0 && idx < section.episodeList.size()) {
+                episodes.add(section.episodeList.get(idx));
+            }
+        }
+        if (episodes.isEmpty())
+            return;
+
+        showCacheQualityDialog(episodes, "缓存已选（" + episodes.size() + "集）");
+    }
+
+    /**
      * 缓存点击入口
      *
      * @param cacheAll true 缓存本季全部，false 缓存当前选中集
@@ -385,13 +487,13 @@ public class BangumiInfoFragment extends Fragment {
             episodes.add(section.episodeList.get(selectedEpisode));
         }
 
-        showCacheQualityDialog(episodes, cacheAll);
+        showCacheQualityDialog(episodes, cacheAll ? "缓存全部（" + episodes.size() + "集）" : "缓存本集");
     }
 
     /**
      * 先获取清晰度列表，再让用户选择后开始缓存
      */
-    private void showCacheQualityDialog(ArrayList<Bangumi.Episode> episodes, boolean cacheAll) {
+    private void showCacheQualityDialog(ArrayList<Bangumi.Episode> episodes, String title) {
         MsgUtil.showMsg("正在获取清晰度...");
         CenterThreadPool.run(() -> {
             try {
@@ -408,11 +510,13 @@ public class BangumiInfoFragment extends Fragment {
 
                 CenterThreadPool.runOnUiThread(() -> {
                     AlertDialog.Builder builder = new AlertDialog.Builder(requireContext());
-                    builder.setTitle(cacheAll ? "缓存全部（" + episodes.size() + "集）" : "缓存本集");
+                    builder.setTitle(title);
                     builder.setItems(qnStrs, (dialog, which) -> {
                         if (which < 0 || which >= qnVals.length)
                             return;
                         startBangumiCache(episodes, qnVals[which]);
+                        if (multiSelectMode)
+                            exitMultiSelect();
                     });
                     builder.show();
                 });
