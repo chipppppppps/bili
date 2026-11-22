@@ -39,6 +39,13 @@ public class PageChooseAdapter extends RecyclerView.Adapter<PageChooseAdapter.Ho
         this.onItemLongClickListener = listener;
     }
 
+    @android.annotation.SuppressLint("NotifyDataSetChanged")
+    public void setData(ArrayList<String> nameList) {
+        this.nameList.clear();
+        this.nameList.addAll(nameList);
+        notifyDataSetChanged();
+    }
+
     @NonNull
     @Override
     public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {

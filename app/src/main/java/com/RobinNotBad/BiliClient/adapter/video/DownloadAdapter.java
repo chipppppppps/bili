@@ -16,7 +16,6 @@ import com.RobinNotBad.BiliClient.R;
 import com.RobinNotBad.BiliClient.listener.OnItemClickListener;
 import com.RobinNotBad.BiliClient.listener.OnItemLongClickListener;
 import com.RobinNotBad.BiliClient.model.DownloadSection;
-import com.RobinNotBad.BiliClient.service.DownloadService;
 import com.RobinNotBad.BiliClient.util.GlideUtil;
 import com.RobinNotBad.BiliClient.util.ToolsUtil;
 import com.bumptech.glide.Glide;
@@ -25,21 +24,20 @@ import com.bumptech.glide.load.resource.bitmap.RoundedCorners;
 import com.bumptech.glide.request.RequestOptions;
 
 import java.util.ArrayList;
-import java.util.Locale;
 
-//下载列表Adapter
+//下载列表Adapter（按标题分组展示）
 //2024-11-24
 
 public class DownloadAdapter extends RecyclerView.Adapter<DownloadAdapter.DownloadHolder> {
 
     Context context;
-    public ArrayList<DownloadSection> downloadList;
+    public ArrayList<DownloadGroup> groupList;
     OnItemLongClickListener longClickListener;
     OnItemClickListener clickListener;
 
-    public DownloadAdapter(Context context, ArrayList<DownloadSection> downloadList) {
+    public DownloadAdapter(Context context, ArrayList<DownloadGroup> groupList) {
         this.context = context;
-        this.downloadList = downloadList;
+        this.groupList = groupList;
     }
 
     public void setOnLongClickListener(OnItemLongClickListener listener) {
@@ -59,23 +57,14 @@ public class DownloadAdapter extends RecyclerView.Adapter<DownloadAdapter.Downlo
 
     @Override
     public void onBindViewHolder(@NonNull DownloadHolder holder, int position) {
-        if (downloadList == null || downloadList.isEmpty()) {
-            holder.show(null, context);
-            holder.showProgress(null, -1);
+        if (groupList == null || position < 0 || position >= groupList.size()) {
             holder.itemView.setOnClickListener(null);
             holder.itemView.setOnLongClickListener(null);
             return;
         }
 
-        DownloadSection section = downloadList.get(position);
-        holder.show(section, context);
-
-        if (section.state.equals("downloading") && DownloadService.section != null
-                && DownloadService.section.id == section.id) {
-            holder.showProgress(DownloadService.state, DownloadService.percent);
-        } else {
-            holder.showProgress(null, -1);
-        }
+        DownloadGroup group = groupList.get(position);
+        holder.show(group, context);
 
         holder.itemView.setOnClickListener(view -> {
             if (clickListener != null) {
@@ -94,80 +83,84 @@ public class DownloadAdapter extends RecyclerView.Adapter<DownloadAdapter.Downlo
 
     @Override
     public int getItemCount() {
-        return downloadList != null && !downloadList.isEmpty() ? downloadList.size() : 1;
+        return groupList != null ? groupList.size() : 0;
+    }
+
+    /**
+     * 下载分组：同一标题（番剧/多P视频）下的所有分集归为一组
+     */
+    public static class DownloadGroup {
+        public String title;
+        public String cover;
+        public ArrayList<DownloadSection> sections = new ArrayList<>();
+
+        public DownloadGroup(String title, String cover) {
+            this.title = title;
+            this.cover = cover;
+        }
+
+        /**
+         * 统计指定状态的集数
+         */
+        public int countState(String state) {
+            int count = 0;
+            for (DownloadSection s : sections) {
+                if (s.state.equals(state))
+                    count++;
+            }
+            return count;
+        }
+
+        /**
+         * 生成状态摘要，如「已下载3 下载中1 等待2」
+         */
+        public String summary() {
+            StringBuilder sb = new StringBuilder();
+            int done = countState("done");
+            int downloading = countState("downloading");
+            int error = countState("error");
+            int none = countState("none");
+            if (done > 0) sb.append("已下载").append(done).append(" ");
+            if (downloading > 0) sb.append("下载中").append(downloading).append(" ");
+            if (error > 0) sb.append("出错").append(error).append(" ");
+            if (none > 0) sb.append("等待").append(none).append(" ");
+            String text = sb.toString().trim();
+            return text.isEmpty() ? "共" + sections.size() + "集" : text;
+        }
     }
 
     public static class DownloadHolder extends RecyclerView.ViewHolder {
         final TextView title;
         final TextView extra;
         final ImageView cover;
-        final View progress;
 
         public DownloadHolder(@NonNull View itemView) {
             super(itemView);
             title = itemView.findViewById(R.id.text_title);
             cover = itemView.findViewById(R.id.img_cover);
-            progress = itemView.findViewById(R.id.progress);
             extra = itemView.findViewById(R.id.text_extra);
         }
 
-        public void show(DownloadSection section, Context context) {
-            if (section == null) {
-                title.setText("没有下载中的项");
-                extra.setText("点击下面继续下载喵？");
-                cover.setImageResource(R.mipmap.placeholder);
-                return;
+        @SuppressLint("SetTextI18n")
+        public void show(DownloadGroup group, Context context) {
+            String name = group.title;
+            if (group.sections.size() > 1) {
+                name = name + "（" + group.sections.size() + "集）";
             }
-            title.setText(section.name_short);
-            switch (section.state) {
-                case "error":
-                    extra.setText("下载出错");
-                    break;
-                case "none":
-                    extra.setText("等待下载");
-                    break;
-                case "downloading":
-                    if (DownloadService.section == null)
-                        extra.setText("下载中断");
-                    break;
-                default:
-                    extra.setText("未知状态？");
-            }
+            title.setText(name);
+            extra.setText(group.summary());
 
-            if (!section.url_cover.isEmpty())
-                Glide.with(BiliTerminal.context).asDrawable().load(section.url_cover)
-                        .transition(GlideUtil.getTransitionOptions())
-                        .apply(RequestOptions.bitmapTransform(new RoundedCorners(ToolsUtil.dp2px(5))))
-                        .diskCacheStrategy(DiskCacheStrategy.NONE)
-                        .into(cover);
-        }
-
-        @SuppressLint({"SetTextI18n"})
-        public void showProgress(String state, float percent) {
-            if (state == null || percent == -1) {
-                progress.setVisibility(View.GONE);
-                return;
-            }
-            progress.setVisibility(View.VISIBLE);
-            extra.setVisibility(View.VISIBLE);
-            extra.setText(state + "：" + String.format(Locale.CHINA, "%.2f", percent * 100) + "%");
-            int width = itemView.getMeasuredWidth();
-            if (width > 0) {
-                ViewGroup.LayoutParams layoutParams = progress.getLayoutParams();
-                layoutParams.width = (int) (width * percent);
-                progress.setLayoutParams(layoutParams);
+            if (group.cover != null && !group.cover.isEmpty()) {
+                try {
+                    Glide.with(BiliTerminal.context).asDrawable().load(group.cover)
+                            .transition(GlideUtil.getTransitionOptions())
+                            .apply(RequestOptions.bitmapTransform(new RoundedCorners(ToolsUtil.dp2px(5))))
+                            .diskCacheStrategy(DiskCacheStrategy.NONE)
+                            .into(cover);
+                } catch (Exception ignored) {
+                }
             } else {
-                progress.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        int measuredWidth = itemView.getMeasuredWidth();
-                        if (measuredWidth > 0) {
-                            ViewGroup.LayoutParams layoutParams = progress.getLayoutParams();
-                            layoutParams.width = (int) (measuredWidth * percent);
-                            progress.setLayoutParams(layoutParams);
-                        }
-                    }
-                });
+                cover.setImageResource(R.mipmap.placeholder);
             }
         }
     }

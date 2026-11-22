@@ -307,9 +307,11 @@ public class DownloadService extends Service {
                     if (file_sign != null && file_sign.exists())
                         file_sign.delete();
 
-                    deleteSection(section.id);
+                    // 下载完成保留记录，标记为已下载，供下载列表选集播放
+                    setState(section.id, "done");
 
                     refreshLocalList();
+                    refreshDownloadList();
                     section = null;
                 } catch (IOException e) {
                     failed = true;
@@ -357,8 +359,9 @@ public class DownloadService extends Service {
         } catch (Exception ignored) {
         }
 
-        deleteSection(section.id);
+        setState(section.id, "done");
         refreshLocalList();
+        refreshDownloadList();
     }
 
     private void toastState(String newState) {
@@ -585,7 +588,7 @@ public class DownloadService extends Service {
                 cursor = database.rawQuery("select * from download where id=? limit 1",
                         new String[]{String.valueOf(firstDown)});
             if (cursor == null)
-                cursor = database.rawQuery("select * from download where state!=? limit 1", new String[]{"error"});
+                cursor = database.rawQuery("select * from download where state!=? and state!=? limit 1", new String[]{"error", "done"});
 
             firstDown = -1;
 
@@ -673,6 +676,37 @@ public class DownloadService extends Service {
         } finally {
             if (database != null)
                 database.close();
+        }
+    }
+
+    /**
+     * 播放已下载完成的视频（本地文件）
+     */
+    public static void playSection(Context context, DownloadSection section) {
+        try {
+            File path = section.getPath();
+            File videoFile = new File(path, "video.mp4");
+            File audioFile = new File(path, "audio.m4a");
+            File mediaFile = videoFile.exists() ? videoFile : (audioFile.exists() ? audioFile : null);
+            if (mediaFile == null || !mediaFile.exists()) {
+                MsgUtil.showMsg("文件不存在，请重新下载");
+                return;
+            }
+
+            File danmakuFile = new File(path, "danmaku.xml");
+
+            PlayerData data = new PlayerData(PlayerData.TYPE_LOCAL);
+            data.videoUrl = mediaFile.toString();
+            data.danmakuUrl = danmakuFile.exists() ? danmakuFile.toString() : "";
+            data.title = (section.child == null || section.child.isEmpty()) ? section.title : section.child;
+
+            Intent intent = PlayerApi.jumpToPlayer(data);
+            if (mediaFile.getName().endsWith("audio.m4a")) {
+                intent.putExtra("audio_only", true);
+            }
+            context.startActivity(intent);
+        } catch (Exception e) {
+            MsgUtil.err(e);
         }
     }
 

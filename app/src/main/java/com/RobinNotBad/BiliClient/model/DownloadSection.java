@@ -103,6 +103,13 @@ public class DownloadSection {
         return "bangumi".equals(videoType);
     }
 
+    /**
+     * 是否已下载完成
+     */
+    public boolean isDone() {
+        return "done".equals(state);
+    }
+
     public PlayerData toPlayerData() {
         PlayerData data = new PlayerData();
         data.aid = aid;

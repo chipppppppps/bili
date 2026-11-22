@@ -185,6 +185,11 @@
             android:label="缓存分页"
             android:screenOrientation="locked" />
         <activity
+            android:name=".activity.video.local.DownloadPageChooseActivity"
+            android:exported="false"
+            android:label="选集播放"
+            android:screenOrientation="locked" />
+        <activity
             android:name=".activity.video.local.LocalListActivity"
             android:exported="true"
             android:label="缓存"

@@ -10,8 +10,6 @@ import androidx.annotation.Nullable;
 
 import com.RobinNotBad.BiliClient.activity.base.RefreshListActivity;
 import com.RobinNotBad.BiliClient.adapter.video.DownloadAdapter;
-import com.RobinNotBad.BiliClient.listener.OnItemClickListener;
-import com.RobinNotBad.BiliClient.listener.OnItemLongClickListener;
 import com.RobinNotBad.BiliClient.model.DownloadSection;
 import com.RobinNotBad.BiliClient.service.DownloadService;
 import com.RobinNotBad.BiliClient.util.CenterThreadPool;
@@ -21,6 +19,7 @@ import com.RobinNotBad.BiliClient.util.MsgUtil;
 import java.io.File;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -31,7 +30,7 @@ public class DownloadListActivity extends RefreshListActivity {
     boolean emptyTipShown;
     boolean firstRefresh = true;
     boolean created;
-    ArrayList<DownloadSection> sections;
+    ArrayList<DownloadAdapter.DownloadGroup> groups;
     private float lastPercent = -1;
     private String lastState = null;
     private long lastDownloadingId = -1;
@@ -71,12 +70,7 @@ public class DownloadListActivity extends RefreshListActivity {
                         if (needUpdate) {
                             final int pos = findDownloadingPosition();
                             if (pos >= 0) {
-                                runOnUiThread(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        adapter.notifyItemChanged(pos);
-                                    }
-                                });
+                                runOnUiThread(() -> adapter.notifyItemChanged(pos));
                             }
                         }
                     }
@@ -87,11 +81,14 @@ public class DownloadListActivity extends RefreshListActivity {
     }
 
     private int findDownloadingPosition() {
-        if (sections == null || DownloadService.section == null)
+        if (groups == null || DownloadService.section == null)
             return -1;
-        for (int i = 0; i < sections.size(); i++) {
-            if (sections.get(i).id == DownloadService.section.id) {
-                return i;
+        for (int i = 0; i < groups.size(); i++) {
+            DownloadAdapter.DownloadGroup group = groups.get(i);
+            for (DownloadSection s : group.sections) {
+                if (s.id == DownloadService.section.id) {
+                    return i;
+                }
             }
         }
         return -1;
@@ -103,119 +100,128 @@ public class DownloadListActivity extends RefreshListActivity {
             return;
         Log.d("debug", "刷新下载列表");
 
-        sections = DownloadService.getAll();
+        ArrayList<DownloadSection> sections = DownloadService.getAll();
+        groups = groupSections(sections);
 
-        if (sections == null || sections.isEmpty()) {
+        if (groups == null || groups.isEmpty()) {
             if (!emptyTipShown) {
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        MsgUtil.showMsg("下载列表为空");
-                        showEmptyView();
-                    }
+                runOnUiThread(() -> {
+                    MsgUtil.showMsg("下载列表为空");
+                    showEmptyView();
                 });
                 emptyTipShown = true;
             }
         } else {
-            for (DownloadSection s : sections) {
-                Log.d("debug-download", s.name_short);
-            }
-
             if (emptyTipShown) {
                 emptyTipShown = false;
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        hideEmptyView();
-                    }
-                });
+                runOnUiThread(this::hideEmptyView);
             }
 
             if (firstRefresh) {
-                adapter = new DownloadAdapter(DownloadListActivity.this, sections);
-                adapter.setOnClickListener(new OnItemClickListener() {
-                    @Override
-                    public void onItemClick(int position) {
-                        CenterThreadPool.run(new Runnable() {
-                            @Override
-                            public void run() {
-                                Log.d("debug-download", "click:" + position);
-                                if (sections == null || position < 0 || position >= sections.size())
-                                    return;
-
-                                DownloadSection section = sections.get(position);
-                                if (section.state.equals("downloading")) {
-                                    MsgUtil.showMsg("下载中，无法操作");
-                                    return;
-                                }
-                                if (section.state.equals("error")) {
-                                    DownloadService.setState(section.id, "none");
-                                }
-
-                                DownloadService.start(section.id);
-                            }
-                        });
-                    }
-                });
-
-                adapter.setOnLongClickListener(new OnItemLongClickListener() {
-                    @Override
-                    public void onItemLongClick(int position) {
-                        CenterThreadPool.run(new Runnable() {
-                            @Override
-                            public void run() {
-                                try {
-                                    if (sections == null || position < 0 || position >= sections.size())
-                                        return;
-
-                                    final DownloadSection delete = sections.get(position);
-                                    if (delete == null)
-                                        return;
-
-                                    if (delete.state.equals("downloading") && DownloadService.started) {
-                                        stopService(new Intent(DownloadListActivity.this, DownloadService.class));
-                                        try {
-                                            Thread.sleep(500);
-                                        } catch (InterruptedException ignored) {
-                                        }
-                                    }
-
-                                    File folder = delete.getPath();
-                                    if (folder != null && folder.exists()) {
-                                        FileUtil.deleteFolder(folder);
-                                    }
-
-                                    DownloadService.deleteSection(delete.id);
-
-                                    refreshList(false);
-                                    MsgUtil.showMsg("删除成功");
-                                } catch (Exception e) {
-                                    MsgUtil.err(e);
-                                }
-                            }
-                        });
-                    }
-                });
-
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        setAdapter(adapter);
-                    }
-                });
+                adapter = new DownloadAdapter(DownloadListActivity.this, groups);
+                adapter.setOnClickListener(this::handleGroupClick);
+                adapter.setOnLongClickListener(this::deleteGroup);
+                runOnUiThread(() -> setAdapter(adapter));
                 firstRefresh = false;
             } else {
-                adapter.downloadList = sections;
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        adapter.notifyDataSetChanged();
-                    }
-                });
-                Log.d("debug-adapter", String.valueOf(adapter.getItemCount()));
+                adapter.groupList = groups;
+                runOnUiThread(() -> adapter.notifyDataSetChanged());
             }
         }
+    }
 
+    /**
+     * 按标题分组，同一番剧/多P视频的所有分集归为一组
+     */
+    private ArrayList<DownloadAdapter.DownloadGroup> groupSections(ArrayList<DownloadSection> sections) {
+        if (sections == null || sections.isEmpty())
+            return null;
+        LinkedHashMap<String, DownloadAdapter.DownloadGroup> map = new LinkedHashMap<>();
+        for (DownloadSection s : sections) {
+            DownloadAdapter.DownloadGroup group = map.get(s.title);
+            if (group == null) {
+                group = new DownloadAdapter.DownloadGroup(s.title, s.url_cover);
+                map.put(s.title, group);
+            }
+            group.sections.add(s);
+        }
+        return new ArrayList<>(map.values());
+    }
+
+    /**
+     * 点击分组：单集直接播放/继续下载，多集进入选集页
+     */
+    private void handleGroupClick(int position) {
+        if (groups == null || position < 0 || position >= groups.size())
+            return;
+        DownloadAdapter.DownloadGroup group = groups.get(position);
+        if (group.sections.size() == 1) {
+            handleSection(group.sections.get(0));
+        } else {
+            Intent intent = new Intent(DownloadListActivity.this, DownloadPageChooseActivity.class);
+            intent.putExtra("title", group.title);
+            startActivity(intent);
+        }
+    }
+
+    /**
+     * 处理单集：已下载播放，下载中提示，否则继续下载
+     */
+    private void handleSection(DownloadSection section) {
+        if (section.isDone()) {
+            DownloadService.playSection(DownloadListActivity.this, section);
+        } else if ("downloading".equals(section.state)) {
+            MsgUtil.showMsg("下载中，无法操作");
+        } else {
+            CenterThreadPool.run(() -> {
+                if ("error".equals(section.state)) {
+                    DownloadService.setState(section.id, "none");
+                }
+                DownloadService.start(section.id);
+            });
+        }
+    }
+
+    /**
+     * 长按分组：删除整组（文件+数据库）
+     */
+    private void deleteGroup(int position) {
+        if (groups == null || position < 0 || position >= groups.size())
+            return;
+        DownloadAdapter.DownloadGroup group = groups.get(position);
+        CenterThreadPool.run(() -> {
+            try {
+                boolean downloading = false;
+                for (DownloadSection s : group.sections) {
+                    if ("downloading".equals(s.state) && DownloadService.started) {
+                        downloading = true;
+                        break;
+                    }
+                }
+                if (downloading) {
+                    stopService(new Intent(DownloadListActivity.this, DownloadService.class));
+                    try {
+                        Thread.sleep(500);
+                    } catch (InterruptedException ignored) {
+                    }
+                }
+
+                // 删除整组目录（单集即其目录，多集即父目录）
+                File groupDir = FileUtil.getVideoDownloadPath(group.title, null);
+                if (groupDir.exists()) {
+                    FileUtil.deleteFolder(groupDir);
+                }
+
+                for (DownloadSection s : group.sections) {
+                    DownloadService.deleteSection(s.id);
+                }
+
+                refreshList(false);
+                MsgUtil.showMsg("删除成功");
+            } catch (Exception e) {
+                MsgUtil.err(e);
+            }
+        });
     }
 
     @Override
