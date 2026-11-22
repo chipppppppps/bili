@@ -135,11 +135,13 @@ public class BaseActivity extends AppCompatActivity {
                     int paddingV = (int) (window_width * 0.03);
                     pagename.setPadding(paddingH, paddingV, paddingH, 0);
                     if (params instanceof RelativeLayout.LayoutParams) {
-                        RelativeLayout.LayoutParams clockParams = new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-                        clockParams.addRule(RelativeLayout.CENTER_HORIZONTAL);
-                        clock.setLayoutParams(clockParams);
-                        clock.setAlpha(0.85f);
-                        clock.setTextSize(12);
+                        if (clock != null) {
+                            RelativeLayout.LayoutParams clockParams = new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                            clockParams.addRule(RelativeLayout.CENTER_HORIZONTAL);
+                            clock.setLayoutParams(clockParams);
+                            clock.setAlpha(0.85f);
+                            clock.setTextSize(12);
+                        }
 
                         RelativeLayout.LayoutParams pnParams = new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
                         pnParams.addRule(RelativeLayout.CENTER_HORIZONTAL);
@@ -153,6 +155,31 @@ public class BaseActivity extends AppCompatActivity {
                     MsgUtil.err("圆屏适配执行错误：", e);
                 }
             }
+        }
+
+        applyRoundContentInsets();
+    }
+
+    /**
+     * 圆屏内容区适配：给列表/滚动内容容器加上左右及底部内边距，
+     * 避免卡片在圆形表盘的四角被裁切。
+     */
+    private void applyRoundContentInsets() {
+        if (!SharedPreferencesUtil.getBoolean("player_ui_round", false))
+            return;
+
+        View content = findViewById(R.id.recyclerView);
+        if (content == null) content = findViewById(R.id.scrollView);
+        if (content == null) content = findViewById(R.id.swipeRefreshLayout);
+
+        if (content != null) {
+            int insetH = (int) (window_width * 0.08);
+            int insetBottom = (int) (window_height * 0.06);
+            content.setPadding(
+                    Math.max(content.getPaddingLeft(), insetH),
+                    content.getPaddingTop(),
+                    Math.max(content.getPaddingRight(), insetH),
+                    Math.max(content.getPaddingBottom(), insetBottom));
         }
     }
 

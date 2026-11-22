@@ -152,6 +152,11 @@ public class DownloadService extends Service {
                                 ? section.audioUrl
                                 : data.audioUrl;
                         url_video = null; // 仅音频模式不需要视频
+                    } else if (section.isBangumi()) {
+                        // 番剧缓存走PGC接口，与普通视频的播放地址接口不同
+                        PlayerApi.getBangumi(data);
+                        url_video = data.videoUrl;
+                        url_audio = null;
                     } else {
                         PlayerApi.getVideo(data, true);
                         url_video = data.videoUrl;
@@ -748,6 +753,57 @@ public class DownloadService extends Service {
 
                 String msg = "audio_only".equals(downloadType) ? "已添加音频下载" : "已添加下载";
                 MsgUtil.showMsg(msg);
+
+                start(-1);
+            } catch (Exception e) {
+                MsgUtil.err(e);
+            } finally {
+                if (cursor != null)
+                    cursor.close();
+                if (database != null)
+                    database.close();
+            }
+        });
+    }
+
+    /**
+     * 开始番剧缓存（每集对应一个下载项，以 video_multi 形式归入番剧标题目录）
+     *
+     * @param parent 番剧标题
+     * @param child  分集标题（如“第1话”）
+     * @param aid    分集 aid
+     * @param cid    分集 cid
+     * @param cover  番剧封面
+     * @param qn     清晰度
+     */
+    public static void startDownloadBangumi(String parent, String child, long aid, long cid, String cover, int qn) {
+        CenterThreadPool.run(() -> {
+            SQLiteDatabase database = null;
+            Cursor cursor = null;
+            try {
+                DownloadSqlHelper helper = new DownloadSqlHelper(BiliTerminal.context);
+                database = helper.getWritableDatabase();
+
+                cursor = database.rawQuery("select * from download where aid=? and cid=?",
+                        new String[]{String.valueOf(aid), String.valueOf(cid)});
+                if (cursor != null && cursor.getCount() > 0) {
+                    MsgUtil.showMsg("该集已在下载队列中");
+                    return;
+                }
+                if (cursor != null)
+                    cursor.close();
+
+                database.execSQL(
+                        "insert into download(type,state,aid,cid,qn,title,child,cover,download_type,audio_url,video_type) values(?,?,?,?,?,?,?,?,?,?,?)",
+                        new Object[]{"video_multi", "none", aid, cid, qn, parent, child, GlideUtil.url(cover),
+                                "video", "", "bangumi"});
+
+                File path_page = FileUtil.getVideoDownloadPath(parent, child);
+                path_page.mkdirs();
+
+                File file_sign = new File(path_page, ".DOWNLOADING");
+                if (!file_sign.exists())
+                    file_sign.createNewFile();
 
                 start(-1);
             } catch (Exception e) {

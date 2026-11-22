@@ -25,11 +25,16 @@ import com.RobinNotBad.BiliClient.activity.settings.SettingPlayerChooseActivity;
 import com.RobinNotBad.BiliClient.activity.video.JumpToPlayerActivity;
 import com.RobinNotBad.BiliClient.adapter.video.MediaEpisodeAdapter;
 import com.RobinNotBad.BiliClient.api.BangumiApi;
+import com.RobinNotBad.BiliClient.api.PlayerApi;
 import com.RobinNotBad.BiliClient.model.Bangumi;
+import com.RobinNotBad.BiliClient.model.PlayerData;
+import com.RobinNotBad.BiliClient.service.DownloadService;
 import com.RobinNotBad.BiliClient.ui.widget.recycler.CustomLinearManager;
 import com.RobinNotBad.BiliClient.util.CenterThreadPool;
+import com.RobinNotBad.BiliClient.util.FileUtil;
 import com.RobinNotBad.BiliClient.util.GlideUtil;
 import com.RobinNotBad.BiliClient.util.MsgUtil;
+import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 import com.bumptech.glide.Glide;
 import com.bumptech.glide.load.engine.DiskCacheStrategy;
 
@@ -231,6 +236,7 @@ public class BangumiInfoFragment extends Fragment {
         if (bangumi.sectionList.isEmpty()) {
             section_choose.setText("敬请期待");
             playButton.setVisibility(View.GONE);
+            rootView.findViewById(R.id.btn_cache).setVisibility(View.GONE);
             rootView.findViewById(R.id.episodes).setVisibility(View.GONE);    //未上线的番剧Activity activity = getActivity();
             Activity activity = requireActivity();
             if (activity instanceof VideoInfoActivity) {
@@ -258,6 +264,14 @@ public class BangumiInfoFragment extends Fragment {
         playButton.setOnLongClickListener(v -> {
             Intent intent = new Intent(v.getContext(), SettingPlayerChooseActivity.class);
             startActivity(intent);
+            return true;
+        });
+
+        //缓存按钮：点击缓存本集，长按缓存本季全部
+        Button cacheButton = rootView.findViewById(R.id.btn_cache);
+        cacheButton.setOnClickListener(v -> cacheClick(false));
+        cacheButton.setOnLongClickListener(v -> {
+            cacheClick(true);
             return true;
         });
         onFinishLoad();
@@ -344,5 +358,92 @@ public class BangumiInfoFragment extends Fragment {
         } else {
             return String.valueOf(num);
         }
+    }
+
+    /**
+     * 缓存点击入口
+     *
+     * @param cacheAll true 缓存本季全部，false 缓存当前选中集
+     */
+    private void cacheClick(boolean cacheAll) {
+        if (bangumi == null || bangumi.sectionList.isEmpty())
+            return;
+
+        if (!FileUtil.checkStoragePermission()) {
+            FileUtil.requestStoragePermission(requireActivity());
+            return;
+        }
+
+        Bangumi.Section section = bangumi.sectionList.get(selectedSection);
+        if (section.episodeList.isEmpty())
+            return;
+
+        ArrayList<Bangumi.Episode> episodes = new ArrayList<>();
+        if (cacheAll) {
+            episodes.addAll(section.episodeList);
+        } else {
+            episodes.add(section.episodeList.get(selectedEpisode));
+        }
+
+        showCacheQualityDialog(episodes, cacheAll);
+    }
+
+    /**
+     * 先获取清晰度列表，再让用户选择后开始缓存
+     */
+    private void showCacheQualityDialog(ArrayList<Bangumi.Episode> episodes, boolean cacheAll) {
+        MsgUtil.showMsg("正在获取清晰度...");
+        CenterThreadPool.run(() -> {
+            try {
+                PlayerData playerData = episodes.get(0).toPlayerData();
+                playerData.qn = SharedPreferencesUtil.getInt("play_qn", 16);
+                PlayerApi.getBangumi(playerData);
+
+                String[] qnStrs = playerData.qnStrList;
+                int[] qnVals = playerData.qnValueList;
+                if (qnStrs == null || qnStrs.length == 0 || qnVals == null || qnVals.length == 0) {
+                    MsgUtil.showMsg("清晰度获取失败");
+                    return;
+                }
+
+                CenterThreadPool.runOnUiThread(() -> {
+                    AlertDialog.Builder builder = new AlertDialog.Builder(requireContext());
+                    builder.setTitle(cacheAll ? "缓存全部（" + episodes.size() + "集）" : "缓存本集");
+                    builder.setItems(qnStrs, (dialog, which) -> {
+                        if (which < 0 || which >= qnVals.length)
+                            return;
+                        startBangumiCache(episodes, qnVals[which]);
+                    });
+                    builder.show();
+                });
+            } catch (Exception e) {
+                MsgUtil.showMsg("清晰度获取失败：" + e.getMessage());
+                e.printStackTrace();
+            }
+        });
+    }
+
+    /**
+     * 将选中的分集逐个加入下载队列
+     */
+    private void startBangumiCache(ArrayList<Bangumi.Episode> episodes, int qn) {
+        String animeTitle = bangumi.info.title;
+        String cover = bangumi.info.cover;
+        for (Bangumi.Episode episode : episodes) {
+            DownloadService.startDownloadBangumi(animeTitle, buildEpisodeName(episode),
+                    episode.aid, episode.cid, cover, qn);
+        }
+        MsgUtil.showMsg(episodes.size() > 1 ? "已添加全部缓存" : "已添加缓存");
+    }
+
+    /**
+     * 生成分集目录名，优先使用长标题（如“第1话”），缺失时退回短标题或cid
+     */
+    private String buildEpisodeName(Bangumi.Episode episode) {
+        if (episode.title_long != null && !episode.title_long.isEmpty())
+            return episode.title_long;
+        if (episode.title != null && !episode.title.isEmpty())
+            return episode.title;
+        return String.valueOf(episode.cid);
     }
 }

@@ -20,6 +20,7 @@ public class DownloadSection {
     public String state;
     public String downloadType; // 下载类型：video, audio_only
     public String audioUrl; // 音频流URL
+    public String videoType; // 视频类型：video(普通视频), bangumi(番剧)
 
     public DownloadSection() {
     }
@@ -49,6 +50,14 @@ public class DownloadSection {
         }
         if (audioUrl == null) {
             audioUrl = "";
+        }
+
+        int videoTypeIndex = cursor.getColumnIndex("video_type");
+        if (videoTypeIndex != -1) {
+            videoType = cursor.getString(videoTypeIndex);
+        }
+        if (videoType == null || videoType.isEmpty()) {
+            videoType = "video";
         }
 
         StringBuilder sBuilder = new StringBuilder();
@@ -87,6 +96,13 @@ public class DownloadSection {
         return "audio_only".equals(downloadType);
     }
 
+    /**
+     * 是否是番剧缓存
+     */
+    public boolean isBangumi() {
+        return "bangumi".equals(videoType);
+    }
+
     public PlayerData toPlayerData() {
         PlayerData data = new PlayerData();
         data.aid = aid;
@@ -94,6 +110,7 @@ public class DownloadSection {
         data.title = title;
         data.qn = qn;
         data.mid = SharedPreferencesUtil.getLong("mid", 0);
+        if (isBangumi()) data.type = PlayerData.TYPE_BANGUMI;
         return data;
     }
 }
