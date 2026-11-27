@@ -172,7 +172,9 @@ public class AppInfoApi {
     }
 
     public static void checkUpdate(Context context, boolean need_toast) {
-        checkUpdate(context, need_toast, false);
+        // 已屏蔽哔哩终端官方更新检查：
+        // 本版本为自定义增强版（番剧缓存 / 批量下载 / 选集播放等），
+        // 不再请求官方版本接口，避免弹窗引导下载官方包覆盖自定义功能。
     }
 
     public static String getDownloadUrl(int versionCode) throws Exception {

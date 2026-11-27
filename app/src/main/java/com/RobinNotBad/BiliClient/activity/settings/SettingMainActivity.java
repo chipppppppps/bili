@@ -11,8 +11,6 @@ import com.RobinNotBad.BiliClient.R;
 import com.RobinNotBad.BiliClient.activity.base.InstanceActivity;
 import com.RobinNotBad.BiliClient.activity.settings.login.LoginActivity;
 import com.RobinNotBad.BiliClient.activity.settings.login.SpecialLoginActivity;
-import com.RobinNotBad.BiliClient.api.AppInfoApi;
-import com.RobinNotBad.BiliClient.util.CenterThreadPool;
 import com.RobinNotBad.BiliClient.util.MsgUtil;
 import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 import com.google.android.material.card.MaterialCardView;
@@ -135,18 +133,9 @@ public class SettingMainActivity extends InstanceActivity {
                 return true;
             });
 
-            //检查更新
+            //检查更新（已屏蔽官方更新）
             MaterialCardView checkUpdate = findViewById(R.id.checkupdate);
-            checkUpdate.setOnClickListener(view -> {
-                MsgUtil.showMsg("正在获取...");
-                CenterThreadPool.run(() -> {
-                    try {
-                        AppInfoApi.checkUpdate(this, true);
-                    } catch (Exception e) {
-                        runOnUiThread(() -> MsgUtil.showMsg("连接到哔哩终端接口时发生错误"));
-                    }
-                });
-            });
+            checkUpdate.setOnClickListener(view -> MsgUtil.showMsg("官方更新已屏蔽"));
 
             //公告列表
             MaterialCardView announcement = findViewById(R.id.announcement);
