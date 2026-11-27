@@ -90,7 +90,7 @@ public class NetWorkUtil {
                     .dns(new Inet4Selector())
                     .pingInterval(8, TimeUnit.SECONDS)
                     .connectTimeout(8, TimeUnit.SECONDS)
-                    .readTimeout(16, TimeUnit.SECONDS).build());
+                    .readTimeout(60, TimeUnit.SECONDS).build());
         }
         return INSTANCE.get();
     }

@@ -30,6 +30,7 @@ import com.RobinNotBad.BiliClient.util.GlideUtil;
 import com.RobinNotBad.BiliClient.util.Logu;
 import com.RobinNotBad.BiliClient.util.MsgUtil;
 import com.RobinNotBad.BiliClient.util.NetWorkUtil;
+import com.RobinNotBad.BiliClient.util.SharedPreferencesUtil;
 
 import org.json.JSONException;
 
@@ -235,6 +236,12 @@ public class DownloadService extends Service {
                                     exitCode = result;
                                     continue;
                                 }
+                                // 校验视频文件大小：异常小说明下载到的是错误内容（正常视频至少数百KB）
+                                if (new File(path_single, "video.mp4").length() < 100 * 1024) {
+                                    failed = true;
+                                    exitCode = ERR_FILE;
+                                    continue;
+                                }
                             }
 
                             break;
@@ -295,6 +302,12 @@ public class DownloadService extends Service {
                                 if (result != NORMAL) {
                                     failed = true;
                                     exitCode = result;
+                                    continue;
+                                }
+                                // 校验视频文件大小：异常小说明下载到的是错误内容（正常视频至少数百KB）
+                                if (new File(path_page, "video.mp4").length() < 100 * 1024) {
+                                    failed = true;
+                                    exitCode = ERR_FILE;
                                     continue;
                                 }
                             }
@@ -440,16 +453,53 @@ public class DownloadService extends Service {
         return NORMAL;
     }
 
+    /**
+     * 视频/音频流下载专用请求头：去掉 Origin、Sec-Ch-Ua 等浏览器专属头，
+     * 只保留防盗链必需的 Referer、User-Agent、Cookie，降低被 CDN 风控的概率。
+     */
+    private static ArrayList<String> mediaHeaders() {
+        ArrayList<String> headers = new ArrayList<>();
+        headers.add("Cookie");
+        headers.add(SharedPreferencesUtil.getString(SharedPreferencesUtil.cookies, ""));
+        headers.add("Referer");
+        headers.add("https://www.bilibili.com/");
+        headers.add("User-Agent");
+        headers.add(NetWorkUtil.USER_AGENT_WEB);
+        return headers;
+    }
+
     private int downFile(String url, File file) throws IOException {
         Response response;
         try {
-            response = NetWorkUtil.get(url);
+            String name = file.getName();
+            if (name.endsWith(".mp4") || name.endsWith(".m4a") || name.endsWith(".flv")) {
+                response = NetWorkUtil.get(url, mediaHeaders());
+            } else {
+                response = NetWorkUtil.get(url);
+            }
         } catch (IOException e) {
             return ERR_NETWORK;
         }
         InputStream inputStream = null;
         FileOutputStream fileOutputStream = null;
         try {
+            // 校验HTTP状态码：非2xx说明拿到的是错误页/防盗链响应，不能当成文件内容写入
+            if (!response.isSuccessful()) {
+                return ERR_NETWORK;
+            }
+
+            // 视频/音频文件校验Content-Type，防止把错误内容（如风控页）当成媒体写入
+            String name = file.getName();
+            if (name.endsWith(".mp4") || name.endsWith(".m4a") || name.endsWith(".flv")) {
+                String contentType = response.header("Content-Type", "");
+                if (!contentType.isEmpty()
+                        && !contentType.startsWith("video/")
+                        && !contentType.startsWith("audio/")
+                        && !contentType.startsWith("application/octet-stream")) {
+                    return ERR_NETWORK;
+                }
+            }
+
             if (!file.exists() && !file.createNewFile())
                 return ERR_FILE;
             else if (!file.delete() || !file.createNewFile())
