@@ -26,61 +26,27 @@ public class FavoriteApi {
     // TODO 合集收藏
 
     public static ArrayList<FavoriteFolder> getFavoriteFolders(long mid) throws IOException, JSONException {
-        String url = "https://space.bilibili.com/ajax/fav/getBoxList?mid=" + mid;
+        // 老接口 space.bilibili.com/ajax/fav/getBoxList 已被 B 站风控（返回 412），
+        // 改用 v3 接口 x/v3/fav/folder/created/list-all
+        String url = "https://api.bilibili.com/x/v3/fav/folder/created/list-all?type=2&up_mid=" + mid;
         JSONObject result = NetWorkUtil.getJson(url);
         JSONObject data = result.getJSONObject("data");
         ArrayList<FavoriteFolder> folderList = new ArrayList<>();
-        java.util.Map<Long, Long> fidToMediaIdMap = new java.util.HashMap<>();
-        
-        try {
-            String v3Url = "https://api.bilibili.com/x/v3/fav/folder/created/list-all?type=2&up_mid=" + mid;
-            JSONObject v3Result = NetWorkUtil.getJson(v3Url);
-            JSONObject v3Data = v3Result.optJSONObject("data");
-            if (v3Data != null && v3Data.has("list") && !v3Data.isNull("list")) {
-                JSONArray v3List = v3Data.getJSONArray("list");
-                for (int j = 0; j < v3List.length(); j++) {
-                    JSONObject v3Folder = v3List.getJSONObject(j);
-                    long v3Fid = v3Folder.optLong("fid", 0);
-                    long v3MediaId = v3Folder.optLong("id", 0);
-                    if (v3Fid > 0 && v3MediaId > 0) {
-                        fidToMediaIdMap.put(v3Fid, v3MediaId);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            Log.e("debug-获取mediaId失败", e.getMessage());
-        }
-        
+
         if (data.has("list") && !data.isNull("list")) {
             JSONArray list = data.getJSONArray("list");
             for (int i = 0; i < list.length(); i++) {
                 JSONObject folder = list.getJSONObject(i);
 
                 FavoriteFolder favoriteFolder = new FavoriteFolder();
+                favoriteFolder.id = folder.getLong("fid");          // fid：收藏夹内视频列表使用
+                favoriteFolder.mediaId = folder.getLong("id");      // media_id：编辑/删除收藏夹使用
+                favoriteFolder.name = folder.getString("title");
+                favoriteFolder.videoCount = folder.getInt("media_count");
+                favoriteFolder.maxCount = folder.optInt("max_count", 0);    // v3 接口不返回上限
+                favoriteFolder.cover = folder.optString("cover", "");       // v3 接口不返回封面，留空显示占位图
+                favoriteFolder.isDefault = (i == 0) || "默认收藏夹".equals(favoriteFolder.name);
 
-                favoriteFolder.id = folder.getLong("fav_box");
-                favoriteFolder.name = folder.getString("name");
-
-                if (!folder.isNull("videos"))
-                    favoriteFolder.cover = folder.getJSONArray("videos").getJSONObject(0).getString("pic");
-                else favoriteFolder.cover = "";
-
-                favoriteFolder.videoCount = folder.getInt("count");
-                favoriteFolder.maxCount = folder.getInt("max_count");
-                favoriteFolder.isDefault = (i == 0 || favoriteFolder.id == 0);
-                
-                Long mediaId = fidToMediaIdMap.get(favoriteFolder.id);
-                if (mediaId != null) {
-                    favoriteFolder.mediaId = mediaId;
-                }
-                
-                Log.e("debug-收藏夹ID", String.valueOf(favoriteFolder.id));
-                Log.e("debug-收藏夹mediaId", String.valueOf(favoriteFolder.mediaId));
-                Log.e("debug-收藏夹名称", favoriteFolder.name);
-                Log.e("debug-收藏夹封面", favoriteFolder.cover);
-                Log.e("debug-收藏夹视频数量", String.valueOf(favoriteFolder.videoCount));
-                Log.e("debug-收藏夹视频上限", String.valueOf(favoriteFolder.maxCount));
-                Log.e("debug-收藏夹", "----------------");
                 folderList.add(favoriteFolder);
             }
         }

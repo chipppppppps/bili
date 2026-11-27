@@ -121,7 +121,7 @@ public class FavoriteFolderAdapter extends RecyclerView.Adapter<RecyclerView.Vie
                     return;
 
                 favoriteHolder.name.setText(StringUtil.htmlToString(folder.name));
-                favoriteHolder.count.setText(folder.videoCount + "/" + folder.maxCount);
+                favoriteHolder.count.setText(folder.maxCount > 0 ? folder.videoCount + "/" + folder.maxCount : String.valueOf(folder.videoCount));
                 Glide.with(BiliTerminal.context).asDrawable().load(GlideUtil.url(folder.cover))
                         .transition(GlideUtil.getTransitionOptions())
                         .apply(RequestOptions.bitmapTransform(new RoundedCorners(ToolsUtil.dp2px(5))))
